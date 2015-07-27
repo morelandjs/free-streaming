@@ -1,0 +1,8 @@
+*.pdf
+*.hd5
+*.aux
+*.dvi
+*.log
+*.backup
+.freestream
+images
