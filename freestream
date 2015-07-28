@@ -27,27 +27,32 @@ def kernel(t0, step=0.1):
 
 def timelike(eigenvals, eigenvecs):
     for e, v in zip(eigenvals, eigenvecs.T):
-        if v[0]**2 - v[1]**2 - v[2]**2 > 0:
-            return e, v
+        if(e.imag == 0 and e.real > 0):
+            v0 = v[0]
+            if(v0.imag == 0 and (2.*v0.real*v0.real-1.) > 0):
+                factor = 1./np.sqrt(2.*v0.real*v0.real-1.)
+                if(v0.real < 0):
+                    factor = -factor
+                return e.real, factor*v.real
     else:
-        return e, [1, 0, 0]
+        return 0, (1,0,0)
 
 def main():
     # thermalization time tsw
     tsw = float(sys.argv[1])
 
     # initialize 2D grid
-    xymax, nstep = 10, 200
+    xymax, nstep = 13, 261
     X, Y = np.meshgrid(np.linspace(-xymax,xymax,nstep), np.linspace(-xymax,xymax,nstep))
 
-    #s = np.exp(-(.3*(X*X) + .1*(Y*Y)))
-    with h5py.File('events.hdf') as f:
-        s = np.array(f['event_2'])
+    s = np.exp(-(.3*(X*X) + .1*(Y*Y)))
+    #with h5py.File('events.hdf') as f:
+    #    s = np.array(f['event_2'])
 
     # load equation of state
     def P(e):
         return e/3.
-    
+
     # calculate components of T^\mu\nu using FFT convolution
     k, kx, ky, kxy, kxx, kyy = kernel(tsw)
     T00 = signal.fftconvolve(s, k, mode='same')
@@ -59,8 +64,8 @@ def main():
     T20 = T02
     T21 = T12
     T22 = signal.fftconvolve(s, kyy, mode='same')
-    Tuv = np.array([[T00, T01, T02], [T10, T11, T12], [T20, T21, T22]]).T
-
+    T = np.array([[T00, T01, T02], [T10, T11, T12], [T20, T21, T22]])
+    
     # initialize freestreaming output
     energy = np.zeros((nstep,nstep))
     pressure = np.zeros((nstep,nstep))
@@ -75,20 +80,20 @@ def main():
     # calculate e, P(e), pi and Pi using eigen decomposition and Landau matching
     for ix, iy in np.ndindex(nstep,nstep):
         
-        # reverse x, y to undo transposition
-        T = Tuv[iy,ix]
+        # grab T^\mu\nu at a specific x, y coordinate
+        T_ = np.dot(T[:,:,ix,iy],g_)
         
-        # solve eigenvector eqn T^\mu\nu u_\nu = e u^\mu (reverse x,y to undo transposition)
-        eigenvals, eigenvecs = np.linalg.eigh(T)
+        # solve eigenvector eqn T^\mu\nu u_\nu = e u^\mu
+        eigenvals, eigenvecs = np.linalg.eig(T_)
         e, u = timelike(eigenvals, eigenvecs)
         
         # define bulk viscous corrections
         delta_ = np.diag([1,1,1]) - np.einsum('u,v,uv', u, u, g_)
-        Pi = -np.einsum('uv,uv',delta_,T)/3. - P(e) 
+        Pi = -np.einsum('uv,uv',delta_,T_)/3. - P(e) 
         
         # define shear viscous corrections
         delta = g - np.einsum('u,v', u, u)
-        pi = T - e*np.einsum('u,v', u, u) + (P(e) + Pi)*delta
+        pi = T_ - e*np.einsum('u,v', u, u) + (P(e) + Pi)*delta
        
         # populate arrays
         energy[ix,iy] = e
@@ -98,8 +103,13 @@ def main():
         bulk[ix,iy] = Pi
 
     # plot it
-    plt.imshow(bulk)
-    plt.show() 
+    #plt.imshow(velocity[:,:,1], vmin=-1, vmax=1)
+    #plt.show()
+
+    # save to file
+    np.savetxt('energy_density.dat', energy)
+    ux = velocity[:,:,1]
+    np.savetxt('ux.dat', ux)
 
 if __name__ == "__main__":
     main()
