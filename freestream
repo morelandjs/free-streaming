@@ -14,8 +14,8 @@ def kernel(t0, step=0.1):
     X, Y = np.meshgrid(x,y)
     r = np.sqrt(X*X + Y*Y)
 
-    k = np.zeros_like(r) # ring of radius r=tau
-    k[np.abs(r - t0) < 0.5*step] = 1.
+    k = np.zeros_like(r)
+    k[np.abs(r - t0) < 0.5*step] = 1. # ring of radius r = tau
     k /= k.sum() # normalize the kernel
 
     kx = k*X/t0 # ring*cos(theta)
