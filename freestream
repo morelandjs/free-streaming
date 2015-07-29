@@ -55,11 +55,11 @@ def main():
     T00 = signal.fftconvolve(f, k, mode='same')/tau
     T01 = signal.fftconvolve(f, kx, mode='same')/tau
     T02 = signal.fftconvolve(f, ky, mode='same')/tau
-    T10 = T01/tau
+    T10 = T01
     T11 = signal.fftconvolve(f, kxx, mode='same')/tau
     T12 = signal.fftconvolve(f, kxy, mode='same')/tau
-    T20 = T02/tau
-    T21 = T12/tau
+    T20 = T02
+    T21 = T12
     T22 = signal.fftconvolve(f, kyy, mode='same')/tau
     T = np.array([[T00, T01, T02], [T10, T11, T12], [T20, T21, T22]])
     
