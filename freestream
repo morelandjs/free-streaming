@@ -1,8 +1,8 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 
 import numpy as np
 import matplotlib.pyplot as plt
-import h5py
+#import h5py
 from scipy import signal
 from scipy.interpolate import interp1d
 import sys, os
@@ -10,63 +10,61 @@ import sys, os
 
 def kernel(t0, step=0.1):
     nstep = int(2*t0/step + 1)
-    y, x = np.ogrid[-t0:t0:nstep*1j, -t0:t0:nstep*1j]
-    r = np.sqrt(x*x + y*y)
+    x, y = np.linspace(-t0,t0,nstep), np.linspace(-t0,t0,nstep)
+    X, Y = np.meshgrid(x,y)
+    r = np.sqrt(X*X + Y*Y)
 
-    k = np.zeros_like(r)
-    k[np.abs(r - t0) < .5*step] = 1.
-    k /= k.sum()/step*step
+    k = np.zeros_like(r) # ring of radius r=tau
+    k[np.abs(r - t0) < 0.5*step] = 1.
+    k /= k.sum() # normalize the kernel
 
-    kx = k*x/t0
-    ky = k*y/t0
-    kxy = k*x*y/(t0*t0)
-    kxx = k*x*x/(t0*t0)
-    kyy = k*y*y/(t0*t0)
+    kx = k*X/t0 # ring*cos(theta)
+    ky = k*Y/t0 # ring*sin(theta)
+    kxy = k*X*Y/(t0*t0) # ring*cos(theta)*sin(theta)
+    kxx = k*X*X/(t0*t0) # ring*cos(theta)**2
+    kyy = k*Y*Y/(t0*t0) # ring*sin(theta)**2
     
     return k, kx, ky, kxy, kxx, kyy
 
 def timelike(eigenvals, eigenvecs):
     for e, v in zip(eigenvals, eigenvecs.T):
-        if(e.imag == 0 and e.real > 0):
-            v0 = v[0]
-            if(v0.imag == 0 and (2.*v0.real*v0.real-1.) > 0):
-                factor = 1./np.sqrt(2.*v0.real*v0.real-1.)
-                if(v0.real < 0):
-                    factor = -factor
-                return e.real, factor*v.real
+        condition = (e.imag == 0) and (e.real > 0) and (v[0].imag == 0) and (2.*v[0].real**2 - 1. > 0) 
+        if condition:
+            factor = np.sign(v[0].real)/np.sqrt(2.*v[0].real**2 - 1.)
+            return e.real, factor*v.real
     else:
         return 0, (1,0,0)
 
 def main():
-    # thermalization time tsw
-    tsw = float(sys.argv[1])
+
+    # thermalization time tau
+    tau = 1.
 
     # initialize 2D grid
     xymax, nstep = 13, 261
-    X, Y = np.meshgrid(np.linspace(-xymax,xymax,nstep), np.linspace(-xymax,xymax,nstep))
+    x, y = np.linspace(-xymax,xymax,nstep), np.linspace(-xymax,xymax,nstep)
+    X, Y = np.meshgrid(x,y)
 
-    s = np.exp(-(.3*(X*X) + .1*(Y*Y)))
+    # make distribution function f(x,y,tau0)
+    f = np.exp(-(.3*(X*X) + .1*(Y*Y)))
     #with h5py.File('events.hdf') as f:
-    #    s = np.array(f['event_2'])
-
-    # load equation of state
-    def P(e):
-        return e/3.
+    #    f = np.array(f['event_2'])
 
     # calculate components of T^\mu\nu using FFT convolution
-    k, kx, ky, kxy, kxx, kyy = kernel(tsw)
-    T00 = signal.fftconvolve(s, k, mode='same')
-    T01 = signal.fftconvolve(s, kx, mode='same')
-    T02 = signal.fftconvolve(s, ky, mode='same')
-    T10 = T01
-    T11 = signal.fftconvolve(s, kxx, mode='same')
-    T12 = signal.fftconvolve(s, kxy, mode='same')
-    T20 = T02
-    T21 = T12
-    T22 = signal.fftconvolve(s, kyy, mode='same')
+    k, kx, ky, kxy, kxx, kyy = kernel(tau)
+    T00 = signal.fftconvolve(f, k, mode='same')/tau
+    T01 = signal.fftconvolve(f, kx, mode='same')/tau
+    T02 = signal.fftconvolve(f, ky, mode='same')/tau
+    T10 = T01/tau
+    T11 = signal.fftconvolve(f, kxx, mode='same')/tau
+    T12 = signal.fftconvolve(f, kxy, mode='same')/tau
+    T20 = T02/tau
+    T21 = T12/tau
+    T22 = signal.fftconvolve(f, kyy, mode='same')/tau
     T = np.array([[T00, T01, T02], [T10, T11, T12], [T20, T21, T22]])
     
     # initialize freestreaming output
+    entropy = f
     energy = np.zeros((nstep,nstep))
     pressure = np.zeros((nstep,nstep))
     velocity = np.zeros((nstep,nstep,4))
@@ -81,13 +79,14 @@ def main():
     for ix, iy in np.ndindex(nstep,nstep):
         
         # grab T^\mu\nu at a specific x, y coordinate
-        T_ = np.dot(T[:,:,ix,iy],g_)
+        T_ = np.dot(T[:,:,iy,ix],g_)
         
         # solve eigenvector eqn T^\mu\nu u_\nu = e u^\mu
         eigenvals, eigenvecs = np.linalg.eig(T_)
         e, u = timelike(eigenvals, eigenvecs)
         
         # define bulk viscous corrections
+        P = lambda x: x/3.
         delta_ = np.diag([1,1,1]) - np.einsum('u,v,uv', u, u, g_)
         Pi = -np.einsum('uv,uv',delta_,T_)/3. - P(e) 
         
@@ -96,20 +95,27 @@ def main():
         pi = T_ - e*np.einsum('u,v', u, u) + (P(e) + Pi)*delta
        
         # populate arrays
-        energy[ix,iy] = e
-        pressure[ix,iy] = P(e)
-        velocity[ix,iy] = np.append(u,0)
-        shear[ix,iy] = pi.resize(4,4)
-        bulk[ix,iy] = Pi
+        energy[iy,ix] = e
+        pressure[iy,ix] = P(e)
+        velocity[iy,ix] = np.append(u,0)
+        shear[iy,ix] = pi.resize(4,4)
+        bulk[iy,ix] = Pi
 
-    # plot it
-    #plt.imshow(velocity[:,:,1], vmin=-1, vmax=1)
-    #plt.show()
 
     # save to file
-    np.savetxt('energy_density.dat', energy)
-    ux = velocity[:,:,1]
-    np.savetxt('ux.dat', ux)
+    directory = 'scott/'
+    if not os.path.exists(directory):
+        os.makedirs(directory)
+ 
+    np.savetxt(directory + 'sd.dat', entropy)
+    np.savetxt(directory + 'T00.dat', T00)
+    np.savetxt(directory + 'T01.dat', T01)
+    np.savetxt(directory + 'T02.dat', T02)
+    np.savetxt(directory + 'T11.dat', T11)
+    np.savetxt(directory + 'T22.dat', T22)
+    np.savetxt(directory + 'ed.dat', energy)
+    np.savetxt(directory + 'ux.dat', velocity[:,:,1])
+    np.savetxt(directory + 'uy.dat', velocity[:,:,2])
 
 if __name__ == "__main__":
     main()
