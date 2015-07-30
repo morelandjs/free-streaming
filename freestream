@@ -2,11 +2,16 @@
 
 import numpy as np
 import matplotlib.pyplot as plt
-#import h5py
+import h5py
 from scipy import signal
 from scipy.interpolate import interp1d
 import sys, os
 
+# This script is based off work by Jia Liu, Chun Shen and Ulrich Heinz
+# arXiv 1504.02160 as well as work by Wojciech Broniowski, Wojciech 
+# Florkowski, Mikolaj Chojnacki and Adam Kisiel DOI 10.1103/PhysRevC.80.034902. 
+# Please cite the original authors if you use this in your work.
+# Jia Liu's C++ code is publicly available at  https://github.com/JiaLiu11
 
 def kernel(t0, step=0.1):
     nstep = int(2*t0/step + 1)
@@ -37,8 +42,8 @@ def timelike(eigenvals, eigenvecs):
 
 def main():
 
-    # thermalization time tau
-    tau = 1.
+    tau = 1. # thermalization time tau
+    factor = 16./(2.*np.pi)**2 # degeneracy and phase space factors
 
     # initialize 2D grid
     xymax, nstep = 13, 261
@@ -46,25 +51,22 @@ def main():
     X, Y = np.meshgrid(x,y)
 
     # make distribution function f(x,y,tau0)
-    f = np.exp(-(.3*(X*X) + .1*(Y*Y)))
+    density = np.exp(-(.3*(X*X) + .1*(Y*Y)))
     #with h5py.File('events.hdf') as f:
-    #    f = np.array(f['event_2'])
+    #    density = np.array(f['event_2'])
+    #    print(density.shape)
 
     # calculate components of T^\mu\nu using FFT convolution
     k, kx, ky, kxy, kxx, kyy = kernel(tau)
-    T00 = signal.fftconvolve(f, k, mode='same')/tau
-    T01 = signal.fftconvolve(f, kx, mode='same')/tau
-    T02 = signal.fftconvolve(f, ky, mode='same')/tau
-    T10 = T01
-    T11 = signal.fftconvolve(f, kxx, mode='same')/tau
-    T12 = signal.fftconvolve(f, kxy, mode='same')/tau
-    T20 = T02
-    T21 = T12
-    T22 = signal.fftconvolve(f, kyy, mode='same')/tau
-    T = np.array([[T00, T01, T02], [T10, T11, T12], [T20, T21, T22]])
+    T00 = signal.fftconvolve(density, k, mode='same')*factor/tau
+    T01 = signal.fftconvolve(density, kx, mode='same')*factor/tau
+    T02 = signal.fftconvolve(density, ky, mode='same')*factor/tau
+    T11 = signal.fftconvolve(density, kxx, mode='same')*factor/tau
+    T12 = signal.fftconvolve(density, kxy, mode='same')*factor/tau
+    T22 = signal.fftconvolve(density, kyy, mode='same')*factor/tau
+    T = np.array([[T00, T01, T02], [T01, T11, T12], [T02, T12, T22]])
     
     # initialize freestreaming output
-    entropy = f
     energy = np.zeros((nstep,nstep))
     pressure = np.zeros((nstep,nstep))
     velocity = np.zeros((nstep,nstep,4))
@@ -72,34 +74,37 @@ def main():
     bulk = np.zeros((nstep,nstep))
     
     # define contravariant and covariants metrics g^\munu
-    g = [[-1,0,0],[0,1,0],[0,0,1]]
-    g_ = [[1,0,0],[0,-1,0],[0,0,-1]]
+    g = [[1,0,0],[0,-1,0],[0,0,-1]]
     
     # calculate e, P(e), pi and Pi using eigen decomposition and Landau matching
-    for ix, iy in np.ndindex(nstep,nstep):
+    for i, j in np.ndindex(nstep,nstep):
+
+        #  skip low density regions
+        if T00[i,j] < 1e-9:
+            continue
         
         # grab T^\mu\nu at a specific x, y coordinate
-        T_ = np.dot(T[:,:,iy,ix],g_)
-        
+        T_ = np.dot(g,T[:,:,i,j])
+ 
         # solve eigenvector eqn T^\mu\nu u_\nu = e u^\mu
         eigenvals, eigenvecs = np.linalg.eig(T_)
-        e, u = timelike(eigenvals, eigenvecs)
-        
+        e, u_ = timelike(eigenvals, eigenvecs)
+        u = np.einsum('u,uv',u_,g)
+
         # define bulk viscous corrections
         P = lambda x: x/3.
-        delta_ = np.diag([1,1,1]) - np.einsum('u,v,uv', u, u, g_)
-        Pi = -np.einsum('uv,uv',delta_,T_)/3. - P(e) 
+        delta = g - np.einsum('u,v', u, u)
+        Pi = -np.einsum('uv,uv',delta,T[:,:,i,j])/3. - P(e) 
         
         # define shear viscous corrections
-        delta = g - np.einsum('u,v', u, u)
-        pi = T_ - e*np.einsum('u,v', u, u) + (P(e) + Pi)*delta
-       
+        pi = T[:,:,i,j] - e*np.einsum('u,v', u, u) + (P(e) + Pi)*delta
+
         # populate arrays
-        energy[iy,ix] = e
-        pressure[iy,ix] = P(e)
-        velocity[iy,ix] = np.append(u,0)
-        shear[iy,ix] = pi.resize(4,4)
-        bulk[iy,ix] = Pi
+        energy[i,j] = e
+        pressure[i,j] = P(e)
+        velocity[i,j,:3] = u
+        shear[i,j,:3,:3] = pi
+        bulk[i,j] = Pi
 
 
     # save to file
@@ -107,15 +112,23 @@ def main():
     if not os.path.exists(directory):
         os.makedirs(directory)
  
-    np.savetxt(directory + 'sd.dat', entropy)
     np.savetxt(directory + 'T00.dat', T00)
     np.savetxt(directory + 'T01.dat', T01)
     np.savetxt(directory + 'T02.dat', T02)
     np.savetxt(directory + 'T11.dat', T11)
     np.savetxt(directory + 'T22.dat', T22)
+    np.savetxt(directory + 'f.dat', density)
     np.savetxt(directory + 'ed.dat', energy)
     np.savetxt(directory + 'ux.dat', velocity[:,:,1])
     np.savetxt(directory + 'uy.dat', velocity[:,:,2])
+    np.savetxt(directory + 'P.dat', pressure)
+    np.savetxt(directory + 'Pi.dat', bulk)
+    np.savetxt(directory + 'pi00.dat', shear[:,:,0,0])
+    np.savetxt(directory + 'pi01.dat', shear[:,:,0,1])
+    np.savetxt(directory + 'pi02.dat', shear[:,:,0,2])
+    np.savetxt(directory + 'pi12.dat', shear[:,:,1,2])
+    np.savetxt(directory + 'pi11.dat', shear[:,:,1,1])
+    np.savetxt(directory + 'pi22.dat', shear[:,:,2,2])
 
 if __name__ == "__main__":
     main()
