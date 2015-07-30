@@ -9,7 +9,7 @@ import sys, os
 
 # This script is based off work by Jia Liu, Chun Shen and Ulrich Heinz
 # arXiv 1504.02160 as well as work by Wojciech Broniowski, Wojciech 
-# Florkowski, Mikolaj Chojnacki and Adam Kisiel DOI 10.1103/PhysRevC.80.034902. 
+# Florkowski, Mikolaj Chojnacki and Adam Kisiel 10.1103/PhysRevC.80.034902. 
 # Please cite the original authors if you use this in your work.
 # Jia Liu's C++ code is publicly available at  https://github.com/JiaLiu11
 
@@ -20,7 +20,7 @@ def kernel(t0, step=0.1):
     r = np.sqrt(X*X + Y*Y)
 
     k = np.zeros_like(r)
-    k[np.abs(r - t0) < 0.5*step] = 1. # ring of radius r = tau
+    k[np.abs(r - t0) < 0.75*step] = 1. # ring of radius r = tau
     k /= k.sum() # normalize the kernel
 
     kx = k*X/t0 # ring*cos(theta)
@@ -33,17 +33,17 @@ def kernel(t0, step=0.1):
 
 def timelike(eigenvals, eigenvecs):
     for e, v in zip(eigenvals, eigenvecs.T):
-        condition = (e.imag == 0) and (e.real > 0) and (v[0].imag == 0) and (2.*v[0].real**2 - 1. > 0) 
-        if condition:
-            factor = np.sign(v[0].real)/np.sqrt(2.*v[0].real**2 - 1.)
-            return e.real, factor*v.real
+        # select positive, real eigenvalue and real eigenvector
+        if (e.imag == 0) and (e.real > 0) and (v[0].imag == 0) and (2.*v[0].real**2 - 1. > 0):
+            # normalize eigenvector in Minkowski space 
+            return e.real, v.real*np.sign(v[0].real)/np.sqrt(2.*v[0].real**2 - 1.)
     else:
         return 0, (1,0,0)
 
 def main():
 
     tau = 1. # thermalization time tau
-    factor = 16./(2.*np.pi)**2 # degeneracy and phase space factors
+    factor = 0.408 # overall norm is arbitrary, to compare with Jia Liu
 
     # initialize 2D grid
     xymax, nstep = 13, 261
@@ -64,7 +64,7 @@ def main():
     T11 = signal.fftconvolve(density, kxx, mode='same')*factor/tau
     T12 = signal.fftconvolve(density, kxy, mode='same')*factor/tau
     T22 = signal.fftconvolve(density, kyy, mode='same')*factor/tau
-    T = np.array([[T00, T01, T02], [T01, T11, T12], [T02, T12, T22]])
+    Tuv = np.array([[T00, T01, T02], [T01, T11, T12], [T02, T12, T22]])
     
     # initialize freestreaming output
     energy = np.zeros((nstep,nstep))
@@ -73,7 +73,7 @@ def main():
     shear = np.zeros((nstep,nstep,4,4))
     bulk = np.zeros((nstep,nstep))
     
-    # define contravariant and covariants metrics g^\munu
+    # define metric tensor g
     g = [[1,0,0],[0,-1,0],[0,0,-1]]
     
     # calculate e, P(e), pi and Pi using eigen decomposition and Landau matching
@@ -83,21 +83,21 @@ def main():
         if T00[i,j] < 1e-9:
             continue
         
-        # grab T^\mu\nu at a specific x, y coordinate
-        T_ = np.dot(g,T[:,:,i,j])
- 
-        # solve eigenvector eqn T^\mu\nu u_\nu = e u^\mu
+        # Define T and g*T
+        T, T_ = Tuv[:,:,i,j], np.dot(g,Tuv[:,:,i,j])
+
+        # Solve eigenvector eqn  T^\mu\nu v_\nu = e g^\mu\nu v_\nu
         eigenvals, eigenvecs = np.linalg.eig(T_)
         e, u_ = timelike(eigenvals, eigenvecs)
         u = np.einsum('u,uv',u_,g)
 
         # define bulk viscous corrections
-        P = lambda x: x/3.
-        delta = g - np.einsum('u,v', u, u)
-        Pi = -np.einsum('uv,uv',delta,T[:,:,i,j])/3. - P(e) 
+        P = lambda x: x/3. # pressure for ideal EOS
+        delta = g - np.einsum('u,v', u, u) # projection operator delta^\mu\nu
+        Pi = -np.einsum('uv,uv',delta,T)/3. - P(e) # bulk viscous pressure
         
         # define shear viscous corrections
-        pi = T[:,:,i,j] - e*np.einsum('u,v', u, u) + (P(e) + Pi)*delta
+        pi = T - e*np.einsum('u,v', u, u) + (P(e) + 0.)*delta # shear viscous pressure
 
         # populate arrays
         energy[i,j] = e
@@ -105,6 +105,13 @@ def main():
         velocity[i,j,:3] = u
         shear[i,j,:3,:3] = pi
         bulk[i,j] = Pi
+
+
+    plt.plot(np.linspace(-13,13,261), density[130,:], 'r-', label='f (y=0)')
+    plt.plot(np.linspace(-13,13,261), density[:,130], 'b--', label='f (x=0)')
+    plt.plot(np.linspace(-13,13,261), velocity[130,:,1], 'r-', label='ux (y=0)')
+    plt.plot(np.linspace(-13,13,261), velocity[:,130,2], 'b--', label='uy (x=0)')
+    plt.show()
 
 
     # save to file
