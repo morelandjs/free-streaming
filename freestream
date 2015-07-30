@@ -106,30 +106,22 @@ def main():
         shear[i,j,:3,:3] = pi
         bulk[i,j] = Pi
 
-
-    plt.plot(np.linspace(-13,13,261), density[130,:], 'r-', label='f (y=0)')
-    plt.plot(np.linspace(-13,13,261), density[:,130], 'b--', label='f (x=0)')
-    plt.plot(np.linspace(-13,13,261), velocity[130,:,1], 'r-', label='ux (y=0)')
-    plt.plot(np.linspace(-13,13,261), velocity[:,130,2], 'b--', label='uy (x=0)')
-    plt.show()
-
-
     # save to file
     directory = 'results/'
     if not os.path.exists(directory):
         os.makedirs(directory)
  
-    np.savetxt(directory + 'T00.dat', T00)
-    np.savetxt(directory + 'T01.dat', T01)
-    np.savetxt(directory + 'T02.dat', T02)
-    np.savetxt(directory + 'T11.dat', T11)
-    np.savetxt(directory + 'T22.dat', T22)
     np.savetxt(directory + 'f.dat', density)
     np.savetxt(directory + 'ed.dat', energy)
     np.savetxt(directory + 'ux.dat', velocity[:,:,1])
     np.savetxt(directory + 'uy.dat', velocity[:,:,2])
     np.savetxt(directory + 'P.dat', pressure)
     np.savetxt(directory + 'Pi.dat', bulk)
+    np.savetxt(directory + 'T00.dat', T00)
+    np.savetxt(directory + 'T01.dat', T01)
+    np.savetxt(directory + 'T02.dat', T02)
+    np.savetxt(directory + 'T11.dat', T11)
+    np.savetxt(directory + 'T22.dat', T22)
     np.savetxt(directory + 'pi00.dat', shear[:,:,0,0])
     np.savetxt(directory + 'pi01.dat', shear[:,:,0,1])
     np.savetxt(directory + 'pi02.dat', shear[:,:,0,2])
