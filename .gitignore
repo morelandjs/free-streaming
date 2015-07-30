@@ -6,6 +6,7 @@
 *.backup
 *.hdf
 .freestream
+latex
 scott
 jia
 compare

@@ -1,2 +1,0 @@
-#!/usr/bin/bash
-trento Pb Pb 100 -p 0 -k 1.4 -w 0.6 -x 6.4 --grid-step 0.1 -o events.hdf
