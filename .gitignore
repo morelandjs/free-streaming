@@ -4,5 +4,10 @@
 *.dvi
 *.log
 *.backup
+*.hdf
 .freestream
+scott
+jia
+compare
 images
+generate-events

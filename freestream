@@ -115,7 +115,7 @@ def main():
 
 
     # save to file
-    directory = 'scott/'
+    directory = 'results/'
     if not os.path.exists(directory):
         os.makedirs(directory)
  
