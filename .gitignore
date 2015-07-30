@@ -1,14 +1,2 @@
-*.pdf
-*.hd5
-*.aux
-*.dvi
-*.log
-*.backup
 *.hdf
-.freestream
-latex
-scott
-jia
-compare
-images
-generate-events
+results
